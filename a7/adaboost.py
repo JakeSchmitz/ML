@@ -72,8 +72,34 @@ class AdaBoost:
           break
         indx += 1
     return s
-    
-  def trainlearner(self, i):
+
+  def testCutoff(self, attr, cutoff, sample):
+    print 'Testing cutoff: ' + str(cutoff)
+    pluserror = 0.0
+    minuserror = 0.0
+    pluserrors = 0.0
+    minuserrors = 0.0
+    for x in sample:
+      xlabel = self.traindata[x][-1] 
+      xattr = self.traindata[x][attr]
+      if xattr < cutoff:
+        if xlabel >= 0:
+          pluserrors += 1.0
+        else:
+          minuserrors += 1.0
+      else:
+        if xlabel < 0:
+          pluserrors += 1.0
+        else:
+          minuserrors += 1.0
+    print minuserrors
+    print pluserrors
+    pluserror = pluserrors / self.trainsize
+    minuserror = minuserrors / self.trainsize
+    return pluserror, minuserror
+      
+
+  def trainLearner(self, i):
     s = self.samples[i]
     bestpluserror = 1.0
     bestminuserror = 1.0
@@ -82,40 +108,29 @@ class AdaBoost:
     for d in s:
       label = self.traindata[d][-1]
       attr = self.traindata[d][i]
-      pluserrors = 0.0
-      minuserrors = 0.0
-      for x in s:
-        xlabel = self.traindata[x][-1] 
-        xattr = self.traindata[x][i]
-        if xattr < attr:
-          if xlabel > 0:
-            minuserrors += 1.0
-        else:
-          if xlabel < 0:
-            pluserrors += 1.0
-        perror = pluserrors / self.trainsize
-        merror = minuserrors / self.trainsize
-        print merror
-        if merror < bestminuserror:
-          bestminuserror = merror
-          bestminuscutoff = attr
-        if perror < bestpluserror:
-          bestpluserror = perror
-          bestpluscutoff = attr 
+      pluserror, minuserror = self.testCutoff(i, attr, s)
+      if minuserror < bestminuserror:
+        bestminuserror = minuserror
+        bestminuscutoff = attr
+      if pluserror < bestpluserror:
+        bestpluserror = pluserror
+        bestpluscutoff = attr 
     answer = dict()
     answer["attribute"] = i
     if bestpluserror < bestminuserror:
       answer["error"] = bestpluserror
       answer["cutoff"] = bestpluscutoff
+      answer["direction"] = 1
     else:
       answer["error"] = bestminuserror
       answer["cutoff"] = bestminuscutoff
+      answer["direction"] = -1
     return answer
 
   def run(self):
     for i in range(self.steps):
       self.samples[i] = self.drawSample(i)
-      print self.trainlearner(i)
+      print self.trainLearner(i)
       #self.testlearners(lrnr) 
 
 AB = AdaBoost(sys.argv[1], sys.argv[2], sys.argv[3])

@@ -1,25 +1,38 @@
 # Implementation of AdaBoost for Comp 135 
 # Jacob Schmitz
 
-# 
-# Overview
-# Use the command line to provide the file names of training and 
-# test files, as well as L, the number of iterations to train
 #
-# Training:
+# To run: python adaboost.py trainfile.arff testfile.arff L
+# Where L is the number of iterations to run
+#
+
+# I'll be honest, I can't get good results with this and I have
+# no idea why. I can get accuracies in the range of 65-77%
+# but there's no strong correlation between the number of 
+# classifiers and the accuracy. 
+
+# For L = 1 I get a classifier on attribute 2 (or 1 if 0 indx)
+# with a cutoff of 144.0 (or similar depending on distribution)
+# and that yields an accuracy of 75.78%, which I've only beaten 
+# that with L = 5 by random luck and got accuracy = 77.8% 
+
+#
+# Read Input
+# Train:
 # Initialize Probability table
 # For i from 1 through L:
 #   Draw sample Xi from Probability Distribution
-#   Train Learner 1 on sample Xi
+#   Train Learner 1 on sample Xi by checking each attribute
+#     For an optimal cutoff value
 #   Calculate Error ei
 #   if ei < 1/2:
 #     Bi = ei / (1 - ei)
 #     Update Probability Distribution (normalize)
-#
-# Testing:
+# Test:
 # For each data point in the test set:
 # Calculate weighted average over all learners 
 # Take the sign to classify the point
+# Compute error rate/ accuracy of predictions
 #
 
 import arff
@@ -95,6 +108,7 @@ class AdaBoost:
         # If it's negative that means the direction would be - (or it's an error)
         else:
           pluserrors += prob
+      # Don't count it as +/- if it is the cutoff, distribute error evenly
       else:
         pluserrors += prob / 2
         minuserrors += prob / 2
@@ -102,9 +116,8 @@ class AdaBoost:
       
   # Given a sample and an attribute index find the best cutoff value and direction
   # for that attribute and calculate the error over the sample of the learner
-  def trainLearner(self, step, i):
+  def trainLearner(self, step, i, s):
     # Sample should've been generated in trainLearners
-    s = self.samples[step]
     bestpluserror = 1.0
     bestminuserror = 1.0
     bestpluscutoff = self.traindata[s[0]][i]
@@ -129,11 +142,11 @@ class AdaBoost:
     if bestpluserror < bestminuserror:
       answer["error"] = bestpluserror
       answer["cutoff"] = bestpluscutoff
-      answer["direction"] = 1
+      answer["direction"] = 1.0
     else:
       answer["error"] = bestminuserror
       answer["cutoff"] = bestminuscutoff
-      answer["direction"] = -1
+      answer["direction"] = -1.0
     return answer
 
   # Given a current step (learner being trained)
@@ -147,19 +160,14 @@ class AdaBoost:
     cut = learner["cutoff"]
     attr = learner["attribute"]
     direction = float(learner["direction"])
-    b = -1.0 * self.betas[step]
-    print b
+    b = self.betas[step]
     # create new probability distribution for learner
     for i, x in self.traindata.iteritems():
       oldprob = self.probs[step][i]
       newprob = oldprob
       v = x[attr]
-      yi = float(x[-1])
-      hi = 1.0 if (v - cut) > 0.0  else -1.0
-      #if float(direction * (v - cut)) >  0.0:
-      #  newprob = b * oldprob
-      if hi != yi:
-        newprob = oldprob * math.exp(b * yi * hi)
+      if direction * (v - cut) >  0.0:
+        newprob = b * oldprob
       self.probs[newstep][i] = newprob
       probsum += newprob
     # normalize the new distribution
@@ -167,18 +175,23 @@ class AdaBoost:
       self.probs[newstep][i] = self.probs[newstep][i] / probsum
     #print self.probs[newstep]
 
+  # Here is the "main" of adaboost
+  # Pretty simple, train the learners, print them, then test
   def run(self):
     self.trainLearners()
     self.printLearners()
     self.testLearners()
 
+  # Testing the learners involves taking all of the test 
+  # cases and doing a weighted average of the weak learners
+  # applied to the test point
+  # take the sign of the sum to get the predicted classification
   def testLearners(self):
     errors = 0
-    print 'testing with weights: ' + str(self.betas)
     for i, x in self.testdata.iteritems():
       expected = 0.0
       for step, lrn in self.learners.iteritems():
-        weight = self.betas[step]
+        weight = math.log(1.0/self.betas[step], 2)
         djx = -1.0
         a = lrn["attribute"]
         diff = float(x[a]) - float(lrn["cutoff"]) 
@@ -188,8 +201,8 @@ class AdaBoost:
       exp = math.copysign(1, expected)
       if int(exp) != int(x[-1]):
         errors += 1
-    print str(errors) + ' out of ' + str(self.testsize) + ' were misclassified'
-    print 'Error rate = ' + str(float(errors)/float(self.testsize))
+    print str(errors) + ' out of ' + str(self.testsize) + ' test cases were misclassified'
+    print 'Accuracy = ' + str(1.0 - float(float(errors)/float(self.testsize)))
 
   # Trains as many learners as asked for via command line
   # Resulting learners are in self.learners
@@ -198,36 +211,26 @@ class AdaBoost:
   def trainLearners(self):
     for i in range(self.steps):
       self.drawSample(i)
+      s = self.samples[i]
       #print self.trainLearner(i)
       besterror = 1.0
       bestlearner = None
-      #freqs = dict()
-      #for index, val in self.samples[i].iteritems():
-      #  if val not in freqs:
-      #    freqs[val] = 0
-      #  freqs[val] += 1
-      #print freqs
-      #entries = 0
-      #for index, v in freqs.iteritems():
-      #  entries += v
-      #print entries
       for j in range(len(self.traindata[0]) - 1):
-        lrn = self.trainLearner(i, j)
+        lrn = self.trainLearner(i, j, s)
         #print lrn
         #key = str(lrn["attribute"]) + '/' + str(lrn["cutoff"])
-        if lrn["error"] < besterror:
+        if lrn["error"] <= besterror:
           #self.attrdir[key] = True
           bestlearner = lrn
           besterror = lrn["error"]
       # This learner is better than guessing, so save it
       if besterror < 0.5:
-        b = 0.5 * math.log((1.0 - besterror)/besterror)
+        b = besterror/(1.0 - besterror)
         self.betas[i] = b
         self.learners[i] = bestlearner
         self.updateProbs(i)
       else:
         self.probs[i + 1] =  self.probs[i]
-      #self.testlearners(lrnr) 
 
   def printLearners(self):
     for i, l in self.learners.iteritems():

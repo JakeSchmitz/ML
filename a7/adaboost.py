@@ -52,10 +52,8 @@ class AdaBoost:
       self.testdata[datasize] = list(r)
       datasize += 1
     self.testsize = float(datasize)
-    i = 0
-    for x in self.probs[0]:
+    for i, x in self.probs[0].iteritems():
       self.probs[0][i] = 1.0 / self.trainsize
-      i += 1
 
   # Given i, a key already set in the probability table
   # Draw a random sample of training data
@@ -66,9 +64,11 @@ class AdaBoost:
     for x in range(int(self.trainsize)):
       nr = random.random()
       cut = 0.0
+      unset = True
+      sett = False
       for indx, p in self.probs[i].iteritems():
         cut += p
-        if nr <= cut:
+        if nr <= cut and unset:
           s[x] = indx
           break
     self.samples[i] = s
@@ -76,8 +76,6 @@ class AdaBoost:
   def testCutoff(self, step, attr, cutoff, sample):
     pluserrors = 0.0
     minuserrors = 0.0
-    pcount = 0.0
-    mcount = 0.0
     for ind, x in sample.iteritems():
       xlabel = self.traindata[x][-1] 
       xattr = self.traindata[x][attr]
@@ -90,13 +88,16 @@ class AdaBoost:
         else:
           minuserrors += prob
       # If x >= cutoff
-      else:
+      elif xattr > cutoff:
         # label should be positive in + direction, negative in - direction
         if int(xlabel) > 0:
           minuserrors += prob
         # If it's negative that means the direction would be - (or it's an error)
         else:
           pluserrors += prob
+      else:
+        pluserrors += prob / 2
+        minuserrors += prob / 2
     return pluserrors, minuserrors
       
   # Given a sample and an attribute index find the best cutoff value and direction
@@ -125,7 +126,7 @@ class AdaBoost:
     answer = dict()
     answer["attribute"] = i
     # Use the best error we saw with every potential cutoff
-    if bestpluserror <= bestminuserror:
+    if bestpluserror < bestminuserror:
       answer["error"] = bestpluserror
       answer["cutoff"] = bestpluscutoff
       answer["direction"] = 1
@@ -146,19 +147,25 @@ class AdaBoost:
     cut = learner["cutoff"]
     attr = learner["attribute"]
     direction = float(learner["direction"])
-    b = self.betas[step]
+    b = -1.0 * self.betas[step]
+    print b
     # create new probability distribution for learner
-    for i in range(int(self.trainsize)):
+    for i, x in self.traindata.iteritems():
       oldprob = self.probs[step][i]
       newprob = oldprob
-      v = self.traindata[i][attr]
-      if float(direction * (v - cut)) >  0.0:
-        newprob = b * oldprob
+      v = x[attr]
+      yi = float(x[-1])
+      hi = 1.0 if (v - cut) > 0.0  else -1.0
+      #if float(direction * (v - cut)) >  0.0:
+      #  newprob = b * oldprob
+      if hi != yi:
+        newprob = oldprob * math.exp(b * yi * hi)
       self.probs[newstep][i] = newprob
       probsum += newprob
     # normalize the new distribution
     for i in range(int(self.trainsize)):
       self.probs[newstep][i] = self.probs[newstep][i] / probsum
+    #print self.probs[newstep]
 
   def run(self):
     self.trainLearners()
@@ -167,16 +174,17 @@ class AdaBoost:
 
   def testLearners(self):
     errors = 0
+    print 'testing with weights: ' + str(self.betas)
     for i, x in self.testdata.iteritems():
       expected = 0.0
       for step, lrn in self.learners.iteritems():
-        betalog = -1.0 * math.log(self.betas[step],2)
+        weight = self.betas[step]
         djx = -1.0
         a = lrn["attribute"]
         diff = float(x[a]) - float(lrn["cutoff"]) 
         if diff * float(lrn["direction"]) > 0:
           djx = 1.0
-        expected += betalog * djx
+        expected += weight * djx
       exp = math.copysign(1, expected)
       if int(exp) != int(x[-1]):
         errors += 1
@@ -193,9 +201,19 @@ class AdaBoost:
       #print self.trainLearner(i)
       besterror = 1.0
       bestlearner = None
+      #freqs = dict()
+      #for index, val in self.samples[i].iteritems():
+      #  if val not in freqs:
+      #    freqs[val] = 0
+      #  freqs[val] += 1
+      #print freqs
+      #entries = 0
+      #for index, v in freqs.iteritems():
+      #  entries += v
+      #print entries
       for j in range(len(self.traindata[0]) - 1):
         lrn = self.trainLearner(i, j)
-        print lrn
+        #print lrn
         #key = str(lrn["attribute"]) + '/' + str(lrn["cutoff"])
         if lrn["error"] < besterror:
           #self.attrdir[key] = True
@@ -203,7 +221,7 @@ class AdaBoost:
           besterror = lrn["error"]
       # This learner is better than guessing, so save it
       if besterror < 0.5:
-        b = besterror / (1.0 - besterror)
+        b = 0.5 * math.log((1.0 - besterror)/besterror)
         self.betas[i] = b
         self.learners[i] = bestlearner
         self.updateProbs(i)
